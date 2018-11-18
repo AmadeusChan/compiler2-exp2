@@ -11,17 +11,29 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import flow.Flow;
+import flow.FlowSolver;
+import submit.FindRedundantNullChecks.*;
+
 class Optimize {
     /**
      * @param optimizeClasses a list of names of class that should be optimized
      * @param nullCheckOnly   if set to true, disable all optimizations except "remove redundant NULL_CHECKs."
      */
     private static List<jq_Class> optimize(List<String> optimizeClasses, boolean nullCheckOnly) {
+	Flow.Solver solver = new FlowSolver();
+	SafeVariableAnalysis analysis = new SafeVariableAnalysis();
+	analysis.disablePrintMsg();
+	solver.registerAnalysis(analysis);
+
         List<jq_Class> outputs = new ArrayList<jq_Class>();
         for (String className : optimizeClasses) {
             jq_Class clazz = (jq_Class) Helper.load(className);
 
+	    Helper.runPass(clazz, solver);
+
             // TODO: Remove redundant null checks
+	    //analysis.removeRedundantQuad();
 
             if (!nullCheckOnly) {
                 // TODO: Run your extra optimizations. (Not required)

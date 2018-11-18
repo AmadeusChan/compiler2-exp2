@@ -44,6 +44,24 @@ public class FindRedundantNullChecks {
 		private VarSet entry, exit;
 		private TransferFunction transferfn = new TransferFunction();
 
+		private boolean printMsg = true;
+
+		public void disablePrintMsg() {
+			printMsg = false;
+		}
+
+		public boolean checkWhetherRedundant(Quad q) {
+			if (q.getOperator() instanceof Operator.NullCheck) {
+				for (RegisterOperand use: q.getUsedRegisters()) {
+					if (in[q.getID()].hasVar(use.getRegister().toString()) == false) {
+						return false;
+					}
+				}
+				return true;
+			}
+			return false;
+		}
+
 		public void preprocess(ControlFlowGraph cfg) {
 			//System.out.println(cfg.getMethod().getName().toString());
 
@@ -101,22 +119,36 @@ public class FindRedundantNullChecks {
 			//}
 			//System.out.println("exit: " + exit.toString());
 
-			System.out.print(cfg.getMethod().getName().toString());
-			QuadIterator qit = new QuadIterator(cfg);
-			while (qit.hasNext()) {
-				Quad q = qit.next();
-				if (q.getOperator() instanceof Operator.NullCheck) {
-					boolean is_redundant = true;
-					for (RegisterOperand use: q.getUsedRegisters()) {
-						if (in[q.getID()].hasVar(use.getRegister().toString()) == false) {
-							is_redundant = false;
-							break;
+			if (printMsg) {
+				System.out.print(cfg.getMethod().getName().toString());
+				QuadIterator qit = new QuadIterator(cfg);
+				ArrayList<Integer> qid_list = new ArrayList<Integer>();
+				while (qit.hasNext()) {
+					Quad q = qit.next();
+					if (q.getOperator() instanceof Operator.NullCheck) {
+						boolean is_redundant = true;
+						for (RegisterOperand use: q.getUsedRegisters()) {
+							if (in[q.getID()].hasVar(use.getRegister().toString()) == false) {
+								is_redundant = false;
+								break;
+							}
 						}
+						if (is_redundant) qid_list.add(q.getID());
 					}
-					if (is_redundant) System.out.print(" " + q.getID());
+				}
+				Collections.sort(qid_list);
+				for (int qid: qid_list) System.out.print(" " + qid);
+				System.out.println("");
+			} else {
+				QuadIterator qit = new QuadIterator(cfg);
+				while (qit.hasNext()) {
+					Quad q = qit.next();
+					if (checkWhetherRedundant(q)) {
+						//System.out.println("Remove " + q.getID());
+						qit.remove();
+					}
 				}
 			}
-			System.out.println("");
 		}
 
 		public boolean isForward() {
@@ -262,7 +294,6 @@ public class FindRedundantNullChecks {
 		if (extra) {
 			args.remove("-e");
 		}
-		// TODO: Fill in this
 		
 		jq_Class[] classes = new jq_Class[args.size()];
 		for (int i = 0; i < classes.length; ++ i) {
