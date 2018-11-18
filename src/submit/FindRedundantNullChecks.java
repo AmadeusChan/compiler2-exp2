@@ -8,9 +8,14 @@ import joeq.Compiler.Quad.Quad;
 import joeq.Compiler.Quad.QuadIterator;
 import joeq.Compiler.Quad.QuadVisitor;
 import joeq.Compiler.Quad.Operator;
+import joeq.Class.*;
+import joeq.Main.*;
 
 import java.util.Set;
 import java.util.TreeSet;
+
+import flow.Flow;
+import flow.FlowSolver;
 
 // Redundant Null Check data-flow analysis
 // Using data-flow analysis to find in the set of varaibles which are already checked in the entry and exit of every quad
@@ -40,11 +45,78 @@ public class FindRedundantNullChecks {
 		private TransferFunction transferfn = new TransferFunction();
 
 		public void preprocess(ControlFlowGraph cfg) {
-			// TODO
+			//System.out.println(cfg.getMethod().getName().toString());
+
+			QuadIterator qit = new QuadIterator(cfg);
+			int max = 0;
+			while (qit.hasNext()) {
+				int x = qit.next().getID();
+				if (x > max) max = x;
+			}
+			max += 1;
+			in = new VarSet[max];
+			out = new VarSet[max];
+			qit = new QuadIterator(cfg);
+
+			Set<String> s = new TreeSet<String>();
+			VarSet.universalSet = s;
+
+			int numargs = cfg.getMethod().getParamTypes().length;
+			for (int i = 0; i < numargs; ++ i) {
+				s.add("R" + i);
+			}
+
+			while (qit.hasNext()) {
+				Quad q = qit.next();
+				for (RegisterOperand def: q.getDefinedRegisters()) {
+					s.add(def.getRegister().toString());
+				}
+				for (RegisterOperand use: q.getUsedRegisters()) {
+					s.add(use.getRegister().toString());
+				}
+			}
+
+			entry = new VarSet();
+			entry.setToBottom();
+			exit = new VarSet();
+			transferfn.val = new VarSet();
+			for (int i = 0; i < in.length; ++ i) {
+				in[i] = new VarSet();
+				out[i] = new VarSet();
+				//in[i].setToTop();
+				//out[i].setToTop();
+			}
+
 		}
 
 		public void postprocess(ControlFlowGraph cfg) {
-			// TODO
+			//System.out.println("entry: " + entry.toString());
+			//QuadIterator qit = new QuadIterator(cfg);
+			//while (qit.hasNext()) {
+			//	Quad q = qit.next();
+			//	if (q.getOperator() instanceof Operator.NullCheck) {
+			//		System.out.println(q.getID() + " in: " + in[q.getID()].toString());
+			//		System.out.println(q.getID() + " out: " + out[q.getID()].toString());
+			//	}
+			//}
+			//System.out.println("exit: " + exit.toString());
+
+			System.out.print(cfg.getMethod().getName().toString());
+			QuadIterator qit = new QuadIterator(cfg);
+			while (qit.hasNext()) {
+				Quad q = qit.next();
+				if (q.getOperator() instanceof Operator.NullCheck) {
+					boolean is_redundant = true;
+					for (RegisterOperand use: q.getUsedRegisters()) {
+						if (in[q.getID()].hasVar(use.getRegister().toString()) == false) {
+							is_redundant = false;
+							break;
+						}
+					}
+					if (is_redundant) System.out.print(" " + q.getID());
+				}
+			}
+			System.out.println("");
 		}
 
 		public boolean isForward() {
@@ -106,7 +178,7 @@ public class FindRedundantNullChecks {
 			private Set<String> set;
 
 			public VarSet() {
-				set = new TreeSet<String>();
+				set = new TreeSet<String>(universalSet);
 			}
 
 			public void setToTop() {
@@ -118,8 +190,9 @@ public class FindRedundantNullChecks {
 			}
 
 			public void meetWith(Flow.DataflowObject o) {
-				ArrayList<String> removeList = new ArrayList<String>();
 				VarSet a = (VarSet) o;
+				//set.addAll(a.set);
+				ArrayList<String> removeList = new ArrayList<String>();
 				for (String v: set) {
 					if (! a.set.contains(v)) {
 						removeList.add(v);
@@ -144,7 +217,7 @@ public class FindRedundantNullChecks {
 
 			@Override
 			public int hashCode() {
-				return set.hashCode;
+				return set.hashCode();
 			}
 
 			@Override
@@ -160,29 +233,48 @@ public class FindRedundantNullChecks {
 				set.remove(v);
 			}
 
-			public static class TransferFunction extends QuadVisitor.EmptyVisitor {
-				VarSet val;
+			public boolean hasVar(String v) {
+				return set.contains(v);
+			}
+		}
 
-				@Override
-				public void visitQuad(Quad q) {
-					if (q.getOperator() instanceof Operator.NullCheck) {
-						for (RegisterOperand use: q.getUsedRegisters()) {
-							val.genVar(use.getRegister().toString());
-						}
-					} else {
-						for (RegisterOperand def: q.getDefinedRegisters()) {
-							val.killVar(def.getRegister().toString());
-						}
+		public static class TransferFunction extends QuadVisitor.EmptyVisitor {
+			VarSet val;
+		
+			@Override
+			public void visitQuad(Quad q) {
+				if (q.getOperator() instanceof Operator.NullCheck) {
+					for (RegisterOperand use: q.getUsedRegisters()) {
+						val.genVar(use.getRegister().toString());
+					}
+				} else {
+					for (RegisterOperand def: q.getDefinedRegisters()) {
+						val.killVar(def.getRegister().toString());
 					}
 				}
-		};
+			}
+		}
 	}
 
 	public static void main(String[] _args) {
 		List<String> args = new ArrayList<String>(Arrays.asList(_args));
 		boolean extra = args.contains("-e");
-		if (extra)
-		args.remove("-e");
+		if (extra) {
+			args.remove("-e");
+		}
 		// TODO: Fill in this
+		
+		jq_Class[] classes = new jq_Class[args.size()];
+		for (int i = 0; i < classes.length; ++ i) {
+			classes[i] = (jq_Class) Helper.load(args.get(i));
+		}
+
+		Flow.Solver solver = new FlowSolver();
+		Flow.Analysis analysis = new SafeVariableAnalysis();
+		solver.registerAnalysis(analysis);
+
+		for (int i = 0; i < classes.length; ++ i) {
+			Helper.runPass(classes[i], solver);
+		}
 	}
 }
